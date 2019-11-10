@@ -1,0 +1,2 @@
+proxy: 'socks5h://127.0.0.1:9050'
+api_token: '__change_me__'
