@@ -9,7 +9,11 @@ class TelegramBot
     call_timeout: 10
     poll_timeout: 30
 
-    new: (api_token) =>
+    new: (api_token, call_timeout, poll_timeout) =>
+        if call_timeout
+            @call_timeout = call_timeout
+        if poll_timeout
+            @poll_timeout = poll_timeout
         @base_url = @url_template\format(api_token)
         @client = http_client.new!
         @_message_channel = fiber.channel!
@@ -42,9 +46,17 @@ class TelegramBot
 
     get_me: => @call 'getMe'
 
+    send_message: (chat_id, text, params) =>
+        params = @_prepare_params params
+        params.chat_id = tonumber chat_id
+        params.text = text
+        return @call_json 'sendMessage', params
+
     start_polling: (fiber_name, allowed_updates, timeout) =>
         if @_polling_fiber
             return nil, 'already polling'
+        if not timeout
+            timeout = @poll_timeout
         fb = fiber.create @_poll, @, allowed_updates, timeout
         fb\name fiber_name
         @_polling_fiber = fb
@@ -59,8 +71,6 @@ class TelegramBot
         return true
 
     _poll: (allowed_updates, timeout) =>
-        if not timeout
-            timeout = @poll_timeout
         offset = nil
         while true
             fiber.testcancel!
@@ -82,6 +92,11 @@ class TelegramBot
         messages = [e.message for e in *res]
         offset = res[#res].update_id + 1
         return messages, offset
+
+    _prepare_params: (params) =>
+        if not params
+            return {}
+        return {k, v for k, v in pairs params}
 
 
 :TelegramBot

@@ -41,9 +41,18 @@ do
     get_me = function(self)
       return self:call('getMe')
     end,
+    send_message = function(self, chat_id, text, params)
+      params = self:_prepare_params(params)
+      params.chat_id = tonumber(chat_id)
+      params.text = text
+      return self:call_json('sendMessage', params)
+    end,
     start_polling = function(self, fiber_name, allowed_updates, timeout)
       if self._polling_fiber then
         return nil, 'already polling'
+      end
+      if not timeout then
+        timeout = self.poll_timeout
       end
       local fb = fiber.create(self._poll, self, allowed_updates, timeout)
       fb:name(fiber_name)
@@ -60,9 +69,6 @@ do
       return true
     end,
     _poll = function(self, allowed_updates, timeout)
-      if not timeout then
-        timeout = self.poll_timeout
-      end
       local offset = nil
       while true do
         fiber.testcancel()
@@ -102,11 +108,27 @@ do
       end
       offset = res[#res].update_id + 1
       return messages, offset
+    end,
+    _prepare_params = function(self, params)
+      if not params then
+        return { }
+      end
+      local _tbl_0 = { }
+      for k, v in pairs(params) do
+        _tbl_0[k] = v
+      end
+      return _tbl_0
     end
   }
   _base_0.__index = _base_0
   _class_0 = setmetatable({
-    __init = function(self, api_token)
+    __init = function(self, api_token, call_timeout, poll_timeout)
+      if call_timeout then
+        self.call_timeout = call_timeout
+      end
+      if poll_timeout then
+        self.poll_timeout = poll_timeout
+      end
       self.base_url = self.url_template:format(api_token)
       self.client = http_client.new()
       self._message_channel = fiber.channel()

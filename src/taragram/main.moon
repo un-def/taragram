@@ -16,7 +16,7 @@ configure_proxy = (proxy_url) ->
 
 
 load_config = ->
-    config_path = os.getenv('TARAGRAM_CONFIG_PATH')
+    config_path = os.getenv 'TARAGRAM_CONFIG_PATH'
     if config_path
         config_path = fio.abspath config_path
     else
@@ -46,10 +46,9 @@ resp, err = bot\get_me!
 if not resp
     die err
 log.info 'bot username: %s', resp.username
+master_id = config.master_id
 message_channel = bot\start_polling 'polling_fiber'
 while true
     msg = message_channel\get!
     log.info msg
-    if msg.text == '/fin'
-        bot\stop_polling!
-        break
+    bot\send_message master_id, '```%s```'\format(yaml.encode msg), {parse_mode: 'markdown'}

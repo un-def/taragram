@@ -52,12 +52,12 @@ if not resp then
   die(err)
 end
 log.info('bot username: %s', resp.username)
+local master_id = config.master_id
 local message_channel = bot:start_polling('polling_fiber')
 while true do
   local msg = message_channel:get()
   log.info(msg)
-  if msg.text == '/fin' then
-    bot:stop_polling()
-    break
-  end
+  bot:send_message(master_id, ('```%s```'):format(yaml.encode(msg)), {
+    parse_mode = 'markdown'
+  })
 end
