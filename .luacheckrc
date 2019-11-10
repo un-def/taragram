@@ -3,4 +3,5 @@ return {
   read_globals = {
     ['os'] = {fields = {'setenv'}},
   },
+  unused_args = false,
 }
