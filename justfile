@@ -11,7 +11,7 @@ install-deps:
   {{rocksinstall}} httoolsp
 
 install-dev-deps: install-deps
-  for dep in moonscript moonpick luacheck; do {{rocksinstall}} "$dep"; done
+  for dep in moonscript inotify moonpick luacheck; do {{rocksinstall}} "$dep"; done
 
 build:
   moonc src/
@@ -22,6 +22,3 @@ watch: build
 lint: build
   find src/ -name '*.moon' -print -exec moonpick {} \;
   luacheck src/
-
-run: build
-  tarantool src/{{project}}/main.lua
