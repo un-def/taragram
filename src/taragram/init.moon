@@ -3,6 +3,26 @@ http_client = require 'http.client'
 json = require 'json'
 
 
+table_insert = table.insert
+
+
+UPDATE_TYPES = {
+    MESSAGE: 'message'
+    EDITED_MESSAGE: 'edited_message'
+    CHANNEL_POST: 'channel_post'
+    EDITED_CHANNEL_POST: 'edited_channel_post'
+    INLINE_QUERY: 'inline_query'
+    CHOSEN_INLINE_RESULT: 'chosen_inline_result'
+    CALLBACK_QUERY: 'callback_query'
+    SHIPPING_QUERY: 'shipping_query'
+    PRE_CHECKOUT_QUERY: 'pre_checkout_query'
+    POLL: 'poll'
+}
+
+
+UPDATE_TYPES_SET = {t, true for _, t in pairs UPDATE_TYPES}
+
+
 class TelegramBot
 
     url_template: 'https://api.telegram.org/bot%s/'
@@ -16,7 +36,9 @@ class TelegramBot
             @poll_timeout = poll_timeout
         @base_url = @url_template\format(api_token)
         @client = http_client.new!
-        @_message_channel = fiber.channel!
+        @_update_channel = fiber.channel!
+
+    -- generic API method calls
 
     call: (method, body, content_type, timeout) =>
         url = @base_url .. method
@@ -44,6 +66,8 @@ class TelegramBot
         body = json.encode params
         return @call method, body, 'application/json', timeout
 
+    -- concrete API method calls
+
     get_me: => @call 'getMe'
 
     send_message: (chat_id, text, params) =>
@@ -52,15 +76,24 @@ class TelegramBot
         params.text = text
         return @call_json 'sendMessage', params
 
+    answer_callback_query: (callback_query_id, params) =>
+        params = @_prepare_params params
+        params.callback_query_id = callback_query_id
+        return @call_json 'answerCallbackQuery', params
+
+    -- polling methods
+
     start_polling: (fiber_name, allowed_updates, timeout) =>
         if @_polling_fiber
             return nil, 'already polling'
+        if not allowed_updates
+            allowed_updates = {}
         if not timeout
             timeout = @poll_timeout
         fb = fiber.create @_poll, @, allowed_updates, timeout
         fb\name fiber_name
         @_polling_fiber = fb
-        return @_message_channel
+        return @_update_channel
 
     stop_polling: =>
         fb = @_polling_fiber
@@ -74,24 +107,33 @@ class TelegramBot
         offset = nil
         while true
             fiber.testcancel!
-            messages, offset = @_poll_once allowed_updates, offset, timeout
-            if messages
-                @_message_channel\put msg for msg in *messages
+            updates, offset = @_poll_once allowed_updates, offset, timeout
+            if updates
+                @_update_channel\put upd for upd in *updates
 
     _poll_once: (allowed_updates, offset, timeout) =>
-        res, err = @call_json 'getUpdates', {
+        updates, err = @call_json 'getUpdates', {
             offset: offset
             limit: 100
             timeout: timeout
             allowed_updates: allowed_updates
         }, timeout + 5
-        if not res
+        if not updates
             return nil, offset, err
-        if #res == 0
+        if #updates == 0
             return nil, offset
-        messages = [e.message for e in *res]
-        offset = res[#res].update_id + 1
-        return messages, offset
+        extracted_updates = {}
+        for update in *updates
+            local update_type, object
+            for key, value in pairs update
+                if key ~= 'update_id' and UPDATE_TYPES_SET[key]
+                    update_type = key
+                    object = value
+                    break
+            assert object, 'cannot find any object in Update'
+            table_insert extracted_updates, {type: update_type, :object}
+        offset = updates[#updates].update_id + 1
+        return extracted_updates, offset
 
     _prepare_params: (params) =>
         if not params
@@ -99,4 +141,4 @@ class TelegramBot
         return {k, v for k, v in pairs params}
 
 
-:TelegramBot
+:UPDATE_TYPES, :TelegramBot

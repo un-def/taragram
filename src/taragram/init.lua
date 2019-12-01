@@ -1,6 +1,27 @@
 local fiber = require('fiber')
 local http_client = require('http.client')
 local json = require('json')
+local table_insert = table.insert
+local UPDATE_TYPES = {
+  MESSAGE = 'message',
+  EDITED_MESSAGE = 'edited_message',
+  CHANNEL_POST = 'channel_post',
+  EDITED_CHANNEL_POST = 'edited_channel_post',
+  INLINE_QUERY = 'inline_query',
+  CHOSEN_INLINE_RESULT = 'chosen_inline_result',
+  CALLBACK_QUERY = 'callback_query',
+  SHIPPING_QUERY = 'shipping_query',
+  PRE_CHECKOUT_QUERY = 'pre_checkout_query',
+  POLL = 'poll'
+}
+local UPDATE_TYPES_SET
+do
+  local _tbl_0 = { }
+  for _, t in pairs(UPDATE_TYPES) do
+    _tbl_0[t] = true
+  end
+  UPDATE_TYPES_SET = _tbl_0
+end
 local TelegramBot
 do
   local _class_0
@@ -47,9 +68,17 @@ do
       params.text = text
       return self:call_json('sendMessage', params)
     end,
+    answer_callback_query = function(self, callback_query_id, params)
+      params = self:_prepare_params(params)
+      params.callback_query_id = callback_query_id
+      return self:call_json('answerCallbackQuery', params)
+    end,
     start_polling = function(self, fiber_name, allowed_updates, timeout)
       if self._polling_fiber then
         return nil, 'already polling'
+      end
+      if not allowed_updates then
+        allowed_updates = { }
       end
       if not timeout then
         timeout = self.poll_timeout
@@ -57,7 +86,7 @@ do
       local fb = fiber.create(self._poll, self, allowed_updates, timeout)
       fb:name(fiber_name)
       self._polling_fiber = fb
-      return self._message_channel
+      return self._update_channel
     end,
     stop_polling = function(self)
       local fb = self._polling_fiber
@@ -72,42 +101,48 @@ do
       local offset = nil
       while true do
         fiber.testcancel()
-        local messages
-        messages, offset = self:_poll_once(allowed_updates, offset, timeout)
-        if messages then
-          for _index_0 = 1, #messages do
-            local msg = messages[_index_0]
-            self._message_channel:put(msg)
+        local updates
+        updates, offset = self:_poll_once(allowed_updates, offset, timeout)
+        if updates then
+          for _index_0 = 1, #updates do
+            local upd = updates[_index_0]
+            self._update_channel:put(upd)
           end
         end
       end
     end,
     _poll_once = function(self, allowed_updates, offset, timeout)
-      local res, err = self:call_json('getUpdates', {
+      local updates, err = self:call_json('getUpdates', {
         offset = offset,
         limit = 100,
         timeout = timeout,
         allowed_updates = allowed_updates
       }, timeout + 5)
-      if not res then
+      if not updates then
         return nil, offset, err
       end
-      if #res == 0 then
+      if #updates == 0 then
         return nil, offset
       end
-      local messages
-      do
-        local _accum_0 = { }
-        local _len_0 = 1
-        for _index_0 = 1, #res do
-          local e = res[_index_0]
-          _accum_0[_len_0] = e.message
-          _len_0 = _len_0 + 1
+      local extracted_updates = { }
+      for _index_0 = 1, #updates do
+        local update = updates[_index_0]
+        local update_type, object
+        for key, value in pairs(update) do
+          if key ~= 'update_id' and UPDATE_TYPES_SET[key] then
+            update_type = key
+            object = value
+            break
+          end
         end
-        messages = _accum_0
+        assert(object, 'cannot find any object in Update')
+        table_insert(extracted_updates, {
+          type = update_type,
+          object = object
+        })
       end
-      offset = res[#res].update_id + 1
-      return messages, offset
+      offset = updates[#updates].update_id + 1
+      return extracted_updates, offset
     end,
     _prepare_params = function(self, params)
       if not params then
@@ -131,7 +166,7 @@ do
       end
       self.base_url = self.url_template:format(api_token)
       self.client = http_client.new()
-      self._message_channel = fiber.channel()
+      self._update_channel = fiber.channel()
     end,
     __base = _base_0,
     __name = "TelegramBot"
@@ -147,5 +182,6 @@ do
   TelegramBot = _class_0
 end
 return {
+  UPDATE_TYPES = UPDATE_TYPES,
   TelegramBot = TelegramBot
 }
